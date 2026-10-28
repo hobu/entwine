@@ -268,3 +268,74 @@ but must preserve representative selection and point insertion order. LAZ
 sorting/encoding and reprojection still warrant their own native profiles before
 changing their algorithms; altering sort tie handling, floating-point operation
 order, or statistics accumulation can change output bytes.
+
+Voxel tube storage experiment (2026-10-28)
+----------------------------------------
+
+``codex/perf-voxel-tube-storage`` starts directly from ``benchmark`` and has no
+dependency on either binary-packing optimization. It replaces each tube's
+``std::map<uint32_t, Voxel>`` with a sorted vector of key/voxel entries. Lookup
+still uses binary search, while contiguous storage avoids allocating and chasing
+a tree node for every occupied voxel. Inserting a new entry can shift existing
+entries, so larger spans and different point distributions need measurement.
+
+The tube lock covers lookup and every use of the returned voxel. Entry relocation
+copies the voxel's coordinates and pointer; point payloads remain in the separate
+``m_gridBlock``. Serialization traverses that block, not the lookup container.
+The change preserves the existing key width, representative-distance comparison,
+tie handling, payload swaps, and insertion order for a fixed insertion sequence.
+A regression test checks boundary keys, reverse/random insertion, duplicate
+lookups, and coordinate/payload preservation through repeated vector growth.
+
+Measurements use the original executable/library retained in
+``build/benchmark-before`` and a candidate built in ``build/performance``, both
+with AppleClang 21, PDAL 2.10.2, and ``RelWithDebInfo`` in the ``entwine`` conda
+environment on macOS arm64. Each workload contains five million points in eight
+LAS files, with two work threads, six clip threads, and one discarded warmup.
+Fresh baselines were collected because the host identity no longer matched the
+earlier reports. Reports and input fingerprints are under
+``build/investigation/voxel-*.json``.
+
+.. list-table:: Median full binary builds, independent voxel-storage change
+   :header-rows: 1
+
+   * - Distribution / span
+     - Before
+     - After
+     - Wall-time reduction
+     - Peak RSS reduction
+   * - Uniform / 32
+     - 3.5104 s
+     - 2.9145 s
+     - 17.0%
+     - 3.4%
+   * - Uniform / 128
+     - 3.4929 s
+     - 2.8595 s
+     - 18.1%
+     - 4.5%
+   * - Clustered / 32
+     - 3.8272 s
+     - 3.2075 s
+     - 16.2%
+     - 12.3%
+   * - Clustered / 128
+     - 3.8233 s
+     - 3.0371 s
+     - 20.6%
+     - 5.2%
+
+The uniform/span-32 case has five measured samples; the other cases have three.
+CPU-time reductions range from 15.9% to 20.3%. These are sequential before/after
+batches with warm filesystem caches, not production-wide performance guarantees.
+No cache reads occurred, so this does not measure eviction/reload workloads.
+The unchanged binary writer is used throughout; gains do not include either
+binary-packing branch.
+
+All 11 CTest entries pass. Exact-byte checks used two input files (1.25 million
+points), one work thread, and three clip threads. All 688 output files matched
+across the uniform/span-32, uniform/span-128, and clustered/span-128 checks,
+including metadata, hierarchy, binary nodes, LAZ nodes, and reprojected nodes.
+The span-32 check also includes the unchanged packing case. Each check first
+confirmed that two runs of the original code matched. The earlier limitation
+on byte determinism with concurrent insertion still applies.

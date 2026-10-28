@@ -10,9 +10,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <utility>
+#include <vector>
 
 #include <entwine/builder/hierarchy.hpp>
 #include <entwine/builder/overflow.hpp>
@@ -31,7 +33,26 @@ class Clipper;
 struct VoxelTube
 {
     SpinLock spin;
-    std::map<uint32_t, Voxel> map;
+
+    // The caller holds spin while using the returned voxel. Inserting another
+    // key can invalidate references, but point data lives in m_gridBlock.
+    Voxel& getOrCreate(uint32_t z)
+    {
+        auto it = std::lower_bound(m_entries.begin(), m_entries.end(), z,
+            [](const Entry& entry, uint32_t key) { return entry.z < key; });
+        if (it == m_entries.end() || it->z != z) it = m_entries.emplace(it, z);
+        return it->voxel;
+    }
+
+private:
+    struct Entry
+    {
+        explicit Entry(uint32_t z) : z(z) { }
+        uint32_t z;
+        Voxel voxel;
+    };
+
+    std::vector<Entry> m_entries;
 };
 
 class Chunk
