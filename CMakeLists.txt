@@ -108,6 +108,12 @@ else()
     message("Configuring with NO unit tests")
 endif()
 
+# Benchmarks are opt-in and independent of the correctness test suite.
+option(WITH_BENCHMARKS "Build the performance benchmark harness" OFF)
+if (WITH_BENCHMARKS)
+    add_subdirectory(test/performance)
+endif()
+
 #
 # Installation
 #

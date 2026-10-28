@@ -69,6 +69,7 @@ See `Connor Manning`_ present "`Trillions of points - spatial indexing, organiza
    quickstart
    download
    configuration
+   performance
    entwine-point-tile
    community
    presentations
